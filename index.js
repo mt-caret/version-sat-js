@@ -3,8 +3,8 @@ import util from 'util';
 import npmFetch from 'npm-registry-fetch';
 import deepEqual from 'deep-equal';
 
-if (process.argv.length !== 3) {
-  console.error('usage: node index.js [path to package.json]');
+if (process.argv.length !== 4) {
+  console.error('usage: node index.js [path to package.json] [output file]');
   process.exit(1);
 }
 
@@ -35,8 +35,7 @@ async function addDepsForPackage(packages, newPackageName) {
 }
 
 (async () => {
-  const path = process.argv[2];
-  const content = JSON.parse(fs.readFileSync(path, 'utf8'));
+  const content = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 
   let packages = {};
 
@@ -44,6 +43,7 @@ async function addDepsForPackage(packages, newPackageName) {
     await addDepsForPackage(packages, packageName);
   }
 
-  //console.log(util.inspect(packages, false, null, true /* enable colors */))
-  console.log(packages);
+  console.log('collected dependencies, writing to file');
+  fs.writeFileSync(process.argv[3], JSON.stringify(packages));
+  console.log('done');
 })()
