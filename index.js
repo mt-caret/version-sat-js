@@ -26,11 +26,16 @@ async function addDepsForPackage(packages, newPackageName) {
   for (const version of packages[newPackageName]) {
     if (version == null || version.dependencies == null) continue;
 
-    for (const [ packageName, _versionRange ] of Object.entries(version.dependencies)) {
-      if (packages[packageName] === undefined) {
-        await addDepsForPackage(packages, packageName);
-      }
-    }
+    const tasks =
+      Object.entries(version.dependencies)
+        .map(([ packageName, _versionRange ]) => {
+          if (packages[packageName] === undefined) {
+            return addDepsForPackage(packages, packageName);
+          } else {
+            return Promise.resolve();
+          }
+        });
+    await Promise.all(tasks);
   }
 }
 
