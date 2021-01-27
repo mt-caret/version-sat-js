@@ -66,11 +66,14 @@ function listVersions() {
   }
 }
 
-function installLatestVersion(registry, installed, packageName, versionSpec) {
+function installLatestVersion(registry, installed, packageName, versionSpec, requiredByPackage) {
   if (installed[packageName] != null) {
     // we assume that versions are sorted in ascending order
     for (let i = installed[packageName].length - 1; i >= 0; i--) {
       if (semver.satisfies(installed[packageName][i].version, versionSpec)) {
+        if (!installed[packageName][i].requiredBy.includes(requiredByPackage)) {
+          installed[packageName][i].requiredBy.push(requiredByPackage);
+        }
         return;
       }
     }
@@ -81,10 +84,11 @@ function installLatestVersion(registry, installed, packageName, versionSpec) {
   for (let i = registry[packageName].length - 1; i >= 0; i--) {
     if (semver.satisfies(registry[packageName][i].version, versionSpec)) {
       const validDep = registry[packageName][i];
+      validDep.requiredBy = [ requiredByPackage ];
       installed[packageName].push(validDep);
 
       for (const [ depPackageName, depVersionSpec ] of Object.entries(validDep.dependencies)) {
-        installLatestVersion(registry, installed, depPackageName, depVersionSpec);
+        installLatestVersion(registry, installed, depPackageName, depVersionSpec, packageName);
       }
       return;
     }
@@ -108,10 +112,12 @@ function naiveResolve() {
   }
 
   for (const [ packageName, versionSpec ] of Object.entries(content.dependencies)) {
-    installLatestVersion(packages, result, packageName, versionSpec);
+    installLatestVersion(packages, result, packageName, versionSpec, content.name);
   }
 
-  console.log(result);
+  console.log('resolved dependencies, writing to file');
+  fs.writeFileSync(process.argv[5], JSON.stringify(result));
+  console.log('done');
 }
 
 if (process.argv.length < 3) {
@@ -136,8 +142,8 @@ switch (subcommand) {
     listVersions();
     break;
   case 'naive-resolve':
-    if (process.argv.length !== 5) {
-      console.error('usage: node index.js [path to dep closure] [path to package.json]');
+    if (process.argv.length !== 6) {
+      console.error('usage: node index.js [path to dep closure] [path to package.json] [output file]');
       process.exit(1);
     }
     naiveResolve();
