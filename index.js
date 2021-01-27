@@ -24,7 +24,7 @@ async function addDepsForPackage(packages, newPackageName) {
 
     const tasks =
       Object.entries(version.dependencies)
-        .map(([ packageName, _versionRange ]) => {
+        .map(([ packageName, _versionSpec ]) => {
           if (packages[packageName] === undefined) {
             return addDepsForPackage(packages, packageName);
           } else {
@@ -40,7 +40,7 @@ async function genClosure() {
 
   let packages = {};
 
-  for (const [ packageName, _versionRange ] of Object.entries(content.dependencies)) {
+  for (const [ packageName, _versionSpec ] of Object.entries(content.dependencies)) {
     await addDepsForPackage(packages, packageName);
   }
 
@@ -49,7 +49,7 @@ async function genClosure() {
   console.log('done');
 }
 
-function resolve() {
+function listVersions() {
   const packages = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
   const packageName = process.argv[4];
   const versionSpec = process.argv[5];
@@ -66,6 +66,54 @@ function resolve() {
   }
 }
 
+function installLatestVersion(registry, installed, packageName, versionSpec) {
+  if (installed[packageName] != null) {
+    // we assume that versions are sorted in ascending order
+    for (let i = installed[packageName].length - 1; i >= 0; i--) {
+      if (semver.satisfies(installed[packageName][i].version, versionSpec)) {
+        return;
+      }
+    }
+  } else {
+    installed[packageName] = [];
+  }
+
+  for (let i = registry[packageName].length - 1; i >= 0; i--) {
+    if (semver.satisfies(registry[packageName][i].version, versionSpec)) {
+      const validDep = registry[packageName][i];
+      installed[packageName].push(validDep);
+
+      for (const [ depPackageName, depVersionSpec ] of Object.entries(validDep.dependencies)) {
+        installLatestVersion(registry, installed, depPackageName, depVersionSpec);
+      }
+      return;
+    }
+  }
+
+  console.error(`could not install '${packageName}' (version spec: ${versionSpec})`);
+  process.exit(1);
+}
+
+function naiveResolve() {
+  const packages = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+  const content = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+
+  let result = {};
+
+  for (const [ packageName, _versionSpec ] of Object.entries(content.dependencies)) {
+    if (packages[packageName] == null) {
+      console.error(`package '${packageName}' not found`);
+      process.exit(1);
+    }
+  }
+
+  for (const [ packageName, versionSpec ] of Object.entries(content.dependencies)) {
+    installLatestVersion(packages, result, packageName, versionSpec);
+  }
+
+  console.log(result);
+}
+
 if (process.argv.length < 3) {
   console.error('supply subcommnd');
   process.exit(1);
@@ -80,12 +128,19 @@ switch (subcommand) {
     }
     getClosure();
     break;
-  case 'resolve':
+  case 'list-versions':
     if (process.argv.length !== 6) {
       console.error('usage: node index.js [path to dep closure] [package name] [version spec]');
       process.exit(1);
     }
-    resolve();
+    listVersions();
+    break;
+  case 'naive-resolve':
+    if (process.argv.length !== 5) {
+      console.error('usage: node index.js [path to dep closure] [path to package.json]');
+      process.exit(1);
+    }
+    naiveResolve();
     break;
   default:
     console.error(`unrecognized subcommand: ${subcommand}`);
