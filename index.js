@@ -44,6 +44,10 @@ async function genClosure() {
     await addDepsForPackage(packages, packageName);
   }
 
+  packages[content.name] = [
+    (({ version, dependencies }) => ({ version, dependencies }))(content)
+  ];
+
   console.log('collected dependencies, writing to file');
   fs.writeFileSync(process.argv[4], JSON.stringify(packages));
   console.log('done');
@@ -104,15 +108,57 @@ function naiveResolve() {
 
   let result = {};
 
-  for (const [ packageName, _versionSpec ] of Object.entries(content.dependencies)) {
-    if (packages[packageName] == null) {
-      console.error(`package '${packageName}' not found`);
-      process.exit(1);
+  installLatestVersion(packages, result, content.name, content.version, "_naiveResolve");
+
+  console.log('resolved dependencies, writing to file');
+  fs.writeFileSync(process.argv[5], JSON.stringify(result));
+  console.log('done');
+}
+
+function backtrackInstallLatestVersion(registry, installed, packageName, versionSpec) {
+  if (installed[packageName] != null) {
+    if (semver.satisfies(installed[packageName].version, versionSpec)) {
+      return true;
+    }
+    console.log(`conflict between installed ${packageName} (${installed[packageName].version}) and version spec '${versionSpec}'`);
+    return false;
+  }
+
+  console.log(`attempting ${packageName} (${versionSpec})`);
+
+  for (let i = registry[packageName].length - 1; i >= 0; i--) {
+    if (semver.satisfies(registry[packageName][i].version, versionSpec)) {
+      const depCandidate = registry[packageName][i];
+      installed[packageName] = depCandidate;
+
+      const isCandidateValid =
+        Object.entries(depCandidate.dependencies).every(([ depPackageName, depVersionSpec ]) => {
+          return backtrackInstallLatestVersion(registry, installed, depPackageName, depVersionSpec);
+        });
+
+      if (isCandidateValid) {
+        return true;
+      } else {
+        installed[packageName] = undefined;
+      }
     }
   }
 
-  for (const [ packageName, versionSpec ] of Object.entries(content.dependencies)) {
-    installLatestVersion(packages, result, packageName, versionSpec, content.name);
+  return false;
+}
+
+function backtrackingResolve() {
+  const packages = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+  const content = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+
+  let result = {};
+
+  let success =
+    backtrackInstallLatestVersion(packages, result, content.name, content.version);
+
+  if (!success) {
+    console.error('dependency resolution failed');
+    process.exit(1);
   }
 
   console.log('resolved dependencies, writing to file');
@@ -132,21 +178,28 @@ switch (subcommand) {
       console.error('usage: node index.js gen-closure [path to package.json] [output file]');
       process.exit(1);
     }
-    getClosure();
+    genClosure();
     break;
   case 'list-versions':
     if (process.argv.length !== 6) {
-      console.error('usage: node index.js [path to dep closure] [package name] [version spec]');
+      console.error('usage: node index.js list-versions [path to dep closure] [package name] [version spec]');
       process.exit(1);
     }
     listVersions();
     break;
   case 'naive-resolve':
     if (process.argv.length !== 6) {
-      console.error('usage: node index.js [path to dep closure] [path to package.json] [output file]');
+      console.error('usage: node index.js naive-resolve [path to dep closure] [path to package.json] [output file]');
       process.exit(1);
     }
     naiveResolve();
+    break;
+  case 'resolve':
+    if (process.argv.length !== 6) {
+      console.error('usage: node index.js resolve [path to dep closure] [path to package.json] [output file]');
+      process.exit(1);
+    }
+    backtrackingResolve();
     break;
   default:
     console.error(`unrecognized subcommand: ${subcommand}`);
