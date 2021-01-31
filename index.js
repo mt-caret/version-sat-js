@@ -115,36 +115,78 @@ function naiveResolve() {
   console.log('done');
 }
 
-function backtrackInstallLatestVersion(registry, installed, packageName, versionSpec) {
-  if (installed[packageName] != null) {
-    if (semver.satisfies(installed[packageName].version, versionSpec)) {
-      return true;
-    }
-    console.log(`conflict between installed ${packageName} (${installed[packageName].version}) and version spec '${versionSpec}'`);
-    return false;
+function* enumDeps(registry, installed, dependencies, index) {
+  if (dependencies.length == index) {
+    yield [];
+    return;
   }
 
-  console.log(`attempting ${packageName} (${versionSpec})`);
+  const [ depName, depVersionSpec ] = dependencies[index];
 
-  for (let i = registry[packageName].length - 1; i >= 0; i--) {
-    if (semver.satisfies(registry[packageName][i].version, versionSpec)) {
-      const depCandidate = registry[packageName][i];
-      installed[packageName] = depCandidate;
-
-      const isCandidateValid =
-        Object.entries(depCandidate.dependencies).every(([ depPackageName, depVersionSpec ]) => {
-          return backtrackInstallLatestVersion(registry, installed, depPackageName, depVersionSpec);
-        });
-
-      if (isCandidateValid) {
-        return true;
-      } else {
-        installed[packageName] = undefined;
+  if (installed[depName] != null) {
+    if (semver.satisfies(installed[depName].version, depVersionSpec)) {
+      const iterator =
+        enumDeps(registry, installed, dependencies, index + 1);
+      for (let candidateDeps of iterator) {
+        candidateDeps.push(installed[depName]);
+        yield candidateDeps;
+        candidateDeps.pop();
       }
     }
+
+    return;
   }
 
-  return false;
+  // TODO: This doesn't work?
+  //let allCandidateDeps = [];
+  //for (const candidateDeps in enumDeps(registry, installed, dependencies, index + 1)) {
+  //  allCandidateDeps.push(JSON.parse(JSON.stringify(candidateDeps)));
+  //}
+
+  for (let i = registry[depName].length - 1; i >= 0; i--) {
+    if (!semver.satisfies(registry[depName][i].version, depVersionSpec)) {
+      continue;
+    }
+
+    for (let candidateDeps of enumDeps(registry, installed, dependencies, index + 1)) {
+      // TODO: fix registry representation
+      const dep = { name: depName, ...registry[depName][i] };
+      candidateDeps.push(dep);
+      yield candidateDeps;
+      candidateDeps.pop();
+    }
+  }
+}
+
+// assumes version exists in registry
+function backtrackInstall(registry, installed, content) {
+  let newInstalled = { ...installed };
+  newInstalled[content.name] =
+    { name: content.name, version: content.version, dependencies: content.dependencies };
+
+  console.log(`attempting install of ${content.name} (${content.version})`);
+
+  const iterator =
+    enumDeps(registry, newInstalled, Object.entries(content.dependencies), 0);
+
+  for (const candidateDeps of iterator) {
+    let isCandidateValid = true;
+    let updatedInstalled = newInstalled;
+    for (const dep of candidateDeps) {
+      const result = backtrackInstall(registry, updatedInstalled, dep);
+      if (!result.isValid) {
+        isCandidateValid = false;
+        break;
+      }
+      updatedInstalled = result.installed;
+    }
+
+    if (isCandidateValid) {
+      return { isValid: true, installed: updatedInstalled };
+    }
+  }
+
+  return { isValid: false, installed: {} };
 }
 
 function backtrackingResolve() {
@@ -153,16 +195,17 @@ function backtrackingResolve() {
 
   let result = {};
 
-  let success =
-    backtrackInstallLatestVersion(packages, result, content.name, content.version);
+  // TODO: add check for package name
+  let { isValid, installed } =
+    backtrackInstall(packages, result, content);
 
-  if (!success) {
+  if (!isValid) {
     console.error('dependency resolution failed');
     process.exit(1);
   }
 
   console.log('resolved dependencies, writing to file');
-  fs.writeFileSync(process.argv[5], JSON.stringify(result));
+  fs.writeFileSync(process.argv[5], JSON.stringify(installed));
   console.log('done');
 }
 
