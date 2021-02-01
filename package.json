@@ -1,5 +1,5 @@
 {
-  "name": "package-json-resolve",
+  "name": "version-sat-js",
   "type": "module",
   "version": "0.0.1",
   "description": "",
@@ -9,14 +9,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mt-caret/package-json-resolve.git"
+    "url": "git+https://github.com/mt-caret/version-sat-js.git"
   },
   "author": "mt-caret",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/mt-caret/package-json-resolve/issues"
+    "url": "https://github.com/mt-caret/version-sat-js/issues"
   },
-  "homepage": "https://github.com/mt-caret/package-json-resolve#readme",
+  "homepage": "https://github.com/mt-caret/version-sat-js#readme",
   "dependencies": {
     "deep-equal": "^2.0.5",
     "npm-registry-fetch": "^9.0.0",
