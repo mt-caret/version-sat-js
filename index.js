@@ -11,8 +11,8 @@ async function fetchVersions(packageName) {
     return [];
   } else {
     return Object.values(result.versions)
-    .map(({ version, dependencies }) =>
-      ({ version, dependencies: dependencies ? dependencies : {} }));
+    .map(({ name, version, dependencies }) =>
+      ({ name, version, dependencies: dependencies ? dependencies : {} }));
   }
 }
 
@@ -138,9 +138,11 @@ function* enumDeps(registry, installed, dependencies, index) {
   }
 
   // TODO: This doesn't work?
+  // this probably doesn't since enumDeps is not the same once we yield.
+  //
   //let allCandidateDeps = [];
   //for (const candidateDeps in enumDeps(registry, installed, dependencies, index + 1)) {
-  //  allCandidateDeps.push(JSON.parse(JSON.stringify(candidateDeps)));
+  //  allCandidateDeps.push(candidateDeps);
   //}
 
   for (let i = registry[depName].length - 1; i >= 0; i--) {
@@ -149,9 +151,7 @@ function* enumDeps(registry, installed, dependencies, index) {
     }
 
     for (let candidateDeps of enumDeps(registry, installed, dependencies, index + 1)) {
-      // TODO: fix registry representation
-      const dep = { name: depName, ...registry[depName][i] };
-      candidateDeps.push(dep);
+      candidateDeps.push(registry[depName][i]);
       yield candidateDeps;
       candidateDeps.pop();
     }
@@ -166,10 +166,7 @@ function backtrackInstall(registry, installed, content) {
 
   console.log(`attempting install of ${content.name} (${content.version})`);
 
-  const iterator =
-    enumDeps(registry, newInstalled, Object.entries(content.dependencies), 0);
-
-  for (const candidateDeps of iterator) {
+  for (const candidateDeps of enumDeps(registry, newInstalled, Object.entries(content.dependencies), 0)) {
     let isCandidateValid = true;
     let updatedInstalled = newInstalled;
     for (const dep of candidateDeps) {
@@ -195,7 +192,11 @@ function backtrackingResolve() {
 
   let result = {};
 
-  // TODO: add check for package name
+  if (packages[content.name] == null) {
+    console.error(`package '${content.name}' does not exist in dependency closure`);
+    process.exit(1);
+  }
+
   let { isValid, installed } =
     backtrackInstall(packages, result, content);
 
@@ -248,5 +249,3 @@ switch (subcommand) {
     console.error(`unrecognized subcommand: ${subcommand}`);
     process.exit(1);
 }
-
-
