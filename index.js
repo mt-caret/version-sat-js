@@ -190,24 +190,77 @@ function backtrackingResolve() {
   const packages = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
   const content = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
 
-  let result = {};
-
   if (packages[content.name] == null) {
     console.error(`package '${content.name}' does not exist in dependency closure`);
     process.exit(1);
   }
 
   let { isValid, installed } =
-    backtrackInstall(packages, result, content);
+    backtrackInstall(packages, {}, content);
 
   if (!isValid) {
     console.error('dependency resolution failed');
     process.exit(1);
   }
 
+  const lock =
+    { name: content.name
+    , version: content.version
+    , dependencies: installed
+    };
+
   console.log('resolved dependencies, writing to file');
-  fs.writeFileSync(process.argv[5], JSON.stringify(installed));
+  fs.writeFileSync(process.argv[5], JSON.stringify(lock));
   console.log('done');
+}
+
+function verifyPackage(registry, installedPackages, verifiedPackages, packageName, version) {
+  if (verifiedPackages.has(packageName)) {
+    return true;
+  }
+
+  const { dependencies } = registry[packageName].find(p => p.version === version);
+
+  for (const [ depPackageName, depVersionSpec ] of Object.entries(dependencies)) {
+    const dep = installedPackages[depPackageName];
+
+    if (dep == null) {
+      console.error(`dependency ${depPackageName} (${depVersionSpec}) not found in lock file`);
+      process.exit(1);
+    }
+
+    if (!semver.satisfies(dep.version, depVersionSpec)) {
+      console.error(`${depPackageName} (${dep.version}), installed as a dependency for ${packageName} (${version}), does not satisfy version spec '${depVersionSpec}'`);
+      return false;
+    }
+
+    if (!verifyPackage(registry, installedPackages, verifiedPackages, depPackageName, dep.version)) {
+      return false;
+    }
+  }
+
+  verifiedPackages.add(packageName);
+  return true;
+}
+
+function verifyLockFile() {
+  const packages = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+  const content = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+
+  if (packages[content.name] == null) {
+    console.error(`package '${content.name}' does not exist in dependency closure`);
+    process.exit(1);
+  }
+
+  const isValid =
+    verifyPackage(packages, content.dependencies, new Set(), content.name, content.version);
+
+  if (!isValid) {
+    console.error('lock file is invalid');
+    process.exit(1);
+  }
+
+  console.log('successfully verified lock file');
 }
 
 if (process.argv.length < 3) {
@@ -244,6 +297,13 @@ switch (subcommand) {
       process.exit(1);
     }
     backtrackingResolve();
+    break;
+  case 'verify-lock':
+    if (process.argv.length !== 5) {
+      console.error('usage: node index.js verify-lock [path to dep closure] [path to package-lock.json]');
+      process.exit(1);
+    }
+    verifyLockFile();
     break;
   default:
     console.error(`unrecognized subcommand: ${subcommand}`);
